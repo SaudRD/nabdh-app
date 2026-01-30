@@ -1,78 +1,52 @@
 (function() {
-    const APP_URL = 'https://nabdh-live.onrender.com'; // رابط سيرفرك
+    const APP_URL = 'https://nabdh-live.onrender.com'; // تأكد أن هذا رابطك الصحيح
     const FETCH_INTERVAL = 3000; 
 
-    // 🕵️‍♂️ دالة المفتش - تبحث عن رقم المتجر في كل مكان ممكن
+    // دالة البحث عن رقم المتجر
     const getStoreId = () => {
         try {
-            // المكان اللي لقيناه في ملفك (الأكثر احتمالاً)
-            if (window.salla && window.salla.config && window.salla.config.properties_ && window.salla.config.properties_.store && window.salla.config.properties_.store.id) {
-                return window.salla.config.properties_.store.id;
-            }
-
-            // الطريقة الرسمية لثيمات توايلايت
-            if (window.salla && window.salla.config && typeof window.salla.config.get === 'function') {
-                const id = window.salla.config.get('store.id');
-                if (id) return id;
-            }
-
-            // الطريقة القديمة
-            if (window.salla && window.salla.config && window.salla.config.store && window.salla.config.store.id) {
-                return window.salla.config.store.id;
-            }
-            
-            // البحث في المتغيرات العالمية الأخرى
-            if (window.CNfG && window.CNfG.store && window.CNfG.store.id) {
-                return window.CNfG.store.id;
-            }
-
+            if (window.salla && window.salla.config && window.salla.config.store && window.salla.config.store.id) return window.salla.config.store.id;
+            if (window.salla && window.salla.config && typeof window.salla.config.get === 'function') return window.salla.config.get('store.id');
+            if (window.CNfG && window.CNfG.store && window.CNfG.store.id) return window.CNfG.store.id;
             return null;
-        } catch (e) {
-            console.error("Error getting store ID:", e);
-            return null;
-        }
+        } catch (e) { return null; }
     };
 
     const applyMerchantSettings = async () => {
-        // نحاول نجيب الرقم، ونطبع النتيجة عشان نتأكد
         let storeId = getStoreId();
-        
-        // محاولة أخيرة: إذا الرقم null، ننتظر ثانيتين ونجرب مرة ثانية (يمكن السلة ما حملت)
         if (!storeId) {
-            await new Promise(r => setTimeout(r, 1500));
+            await new Promise(r => setTimeout(r, 1000));
             storeId = getStoreId();
         }
-
-        console.log("🔍 Nabdh App - Store ID Found:", storeId);
-
-        if (!storeId) {
-             console.log("⚠️ Failed to find Store ID, loading defaults.");
-             return { brand_color: '#22c55e', position: 'top-left' };
+        
+        // إذا كنا في صفحة السلة، نوقف العمل فوراً (عشان ما يطلع فوق زر الدفع)
+        if (window.location.href.includes('/cart')) {
+            return null;
         }
 
         try {
             const res = await fetch(`${APP_URL}/settings?store_id=${storeId}`);
-            const settings = await res.json();
-            console.log("✅ Settings Applied:", settings);
-            return settings;
+            return await res.json();
         } catch (e) {
             return { brand_color: '#22c55e', position: 'top-left' };
         }
     };
 
     const injectStyles = (settings) => {
-        if (document.getElementById('nabdh-styles')) return;
+        if (!settings || document.getElementById('nabdh-styles')) return;
 
         let positionStyle = 'left: 0; top: -55px;';
-        if (settings.position === 'top-right') {
-            positionStyle = 'right: 0; left: auto; top: -55px;';
-        } else if (settings.position === 'bottom-center') {
-             positionStyle = 'left: 50%; transform: translateX(-50%); top: 110%; bottom: auto;';
-        }
+        if (settings.position === 'top-right') positionStyle = 'right: 0; left: auto; top: -55px;';
+        else if (settings.position === 'bottom-center') positionStyle = 'left: 50%; transform: translateX(-50%); top: 110%; bottom: auto;';
 
         const style = document.createElement('style');
         style.id = 'nabdh-styles';
         style.innerHTML = `
+            /* نخفي التنبيهات داخل السلة وكروت المنتجات الصغيرة */
+            .cart-item .social-proof-wrapper,
+            .product-entry__actions .social-proof-wrapper, 
+            .btn--delete .social-proof-wrapper { display: none !important; }
+
             .social-proof-wrapper { position: relative !important; display: inline-block !important; width: 100% !important; }
             .living-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
             
@@ -104,25 +78,31 @@
     };
 
     const init = async () => {
-        // ننتظر قليلاً حتى تكتمل صفحة سلة
         setTimeout(async () => {
             const settings = await applyMerchantSettings();
+            if (!settings) return; // توقف إذا كنا في السلة
             injectStyles(settings);
 
-            const selectors = ['button[product-type="product"]', '.s-button-element', '.product-details__btn-add'];
-            let targetBtn = null;
+            // ⚠️ التغيير هنا: نحدد فقط زر إضافة المنتج الرئيسي
+            // ونستبعد أي شيء داخل السلة أو أزرار الحذف
             const checkBtn = setInterval(() => {
-                for (let selector of selectors) {
-                    const found = document.querySelector(selector);
-                    if (found && found.offsetParent !== null) { targetBtn = found; break; }
+                // نبحث عن المكون الرئيسي لإضافة المنتج
+                const mainProductBtn = document.querySelector('salla-add-product-button button') || 
+                                       document.querySelector('.product-details__btn-add');
+
+                if (mainProductBtn) {
+                    // تحقق مزدوج: تأكد أن الزر ليس زر حذف ولا داخل السلة
+                    const isDeleteBtn = mainProductBtn.classList.contains('btn--delete');
+                    const isInCart = mainProductBtn.closest('salla-cart-summary') || mainProductBtn.closest('.cart-item');
+
+                    if (!mainProductBtn.dataset.socialProofInit && !isDeleteBtn && !isInCart) {
+                        clearInterval(checkBtn);
+                        enhanceButton(mainProductBtn);
+                    }
                 }
-                if (targetBtn && !targetBtn.dataset.socialProofInit) {
-                    clearInterval(checkBtn);
-                    enhanceButton(targetBtn);
-                }
-            }, 800);
+            }, 1000);
             setTimeout(() => clearInterval(checkBtn), 10000);
-        }, 1500); // زدنا وقت الانتظار لضمان تحميل المتغيرات
+        }, 1000);
     };
 
     const enhanceButton = (btn) => {
@@ -130,8 +110,11 @@
         btn.classList.add('salla-social-pulse');
         const wrapper = document.createElement('div');
         wrapper.className = 'social-proof-wrapper';
+        
+        // خدعة لضمان عدم تكسير التصميم
         btn.parentNode.insertBefore(wrapper, btn);
         wrapper.appendChild(btn);
+        
         const layer = document.createElement('div');
         layer.className = 'living-layer';
         wrapper.appendChild(layer);
