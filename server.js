@@ -136,7 +136,9 @@ app.get('/client.js', (req, res) => {
         res.status(404).send('client.js not found');
     }
 });
-
+app.get('/', (req, res) => {
+    res.send('✅ نبض (Nabdh) Server is Running & Secure!');
+});
 // تشغيل السيرفر
 app.listen(PORT, () => {
     console.log(`========================================`);
@@ -144,3 +146,4 @@ app.listen(PORT, () => {
     console.log(`🔐 Webhook Secret Status: ${SALLA_WEBHOOK_SECRET ? 'Loaded ✅' : 'Missing ⚠️'}`);
     console.log(`========================================`);
 });
+
