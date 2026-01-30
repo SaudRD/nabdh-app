@@ -5,7 +5,7 @@
 
 (function() {
     // Configuration
-    const APP_URL = 'https://YOUR-APP-URL'; // Replace with your actual app URL
+    const APP_URL = 'https://nabdh-live.onrender.com'; // Replace with your actual app URL
     const FETCH_INTERVAL = 3000; // Time between spawns
     
     const FALLBACK_DATA = {
@@ -205,3 +205,4 @@
         init();
     }
 })();
+
