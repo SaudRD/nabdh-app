@@ -1,104 +1,89 @@
 const express = require('express');
 const cors = require('cors');
-const path = require('path');
 const { JsonDB, Config } = require('node-json-db');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// إعداد قاعدة البيانات (ستنشئ ملفاً اسمه myDatabase.json)
+// إعداد قاعدة البيانات
 const db = new JsonDB(new Config("myDatabase", true, false, '/'));
 
 app.use(cors());
 app.use(express.json());
 
-// تهيئة البيانات الافتراضية إذا كانت قاعدة البيانات فارغة
-(async () => {
-    try {
-        await db.getData("/settings");
-    } catch(error) {
-        await db.push("/settings", { color: "#22c55e", position: "top-left" });
-    }
-    try {
-        await db.getData("/orders");
-    } catch(error) {
-        await db.push("/orders", []);
-    }
-})();
+// الإعدادات الافتراضية
+const DEFAULT_SETTINGS = { brand_color: "#22c55e", position: "top-left" };
 
-// --- 1. الويب هوك (حفظ الطلبات في قاعدة البيانات) ---
+// --- 1. الويب هوك (استقبال التغييرات من سلة) ---
 app.post('/webhook', async (req, res) => {
-    console.log('--- 🔔 New Webhook ---');
     const payload = req.body;
+    const event = payload.event;
 
-    if (payload.event === 'order.created') {
-        const customerName = payload.data?.customer?.first_name || "زائر";
-        const productName = payload.data?.items?.[0]?.name || "منتج";
-        
-        const newNotification = {
-            name: customerName,
-            action: `اشترى ${productName}`,
-            avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(customerName)}&background=random&color=fff`,
-            timestamp: Date.now()
-        };
-
-        // حفظ الطلب في قاعدة البيانات
-        await db.push("/orders[]", newNotification);
-        
-        // المحافظة على آخر 50 طلب فقط
-        const allOrders = await db.getData("/orders");
-        if (allOrders.length > 50) {
-            // حذف الأقدم
-            const recentOrders = allOrders.slice(-50);
-            await db.push("/orders", recentOrders);
-        }
-        
-        console.log(`💾 Saved to DB: ${customerName}`);
-    }
-    res.status(200).send({ success: true });
-});
-
-// --- 2. جلب الإشعارات للواجهة (من قاعدة البيانات) ---
-app.get('/notifications', async (req, res) => {
     try {
-        const orders = await db.getData("/orders");
-        if (orders.length === 0) {
-            // بيانات وهمية إذا ما فيه طلبات
-            return res.json({ name: "زائر", action: "يتصفح المتجر", avatar: "https://randomuser.me/api/portraits/lego/1.jpg" });
+        // أ) التاجر غير اللون في الإعدادات
+        if (event === 'app.settings.updated') {
+            const settings = payload.data.settings;
+            console.log('🎨 Settings Updated:', settings);
+            
+            // حفظ الإعدادات
+            await db.push("/settings", {
+                brand_color: settings.brand_color || DEFAULT_SETTINGS.brand_color,
+                position: settings.position || DEFAULT_SETTINGS.position
+            });
         }
-        // إرجاع طلب عشوائي من آخر 10
-        const recent = orders.slice(-10);
-        const randomOrder = recent[Math.floor(Math.random() * recent.length)];
-        res.json(randomOrder);
+
+        // ب) طلب جديد (تسجيل الإشعار)
+        else if (event === 'order.created') {
+            const customerName = payload.data?.customer?.first_name || "زائر";
+            const productName = payload.data?.items?.[0]?.name || "منتج";
+            
+            const newNotification = {
+                name: customerName,
+                action: `اشترى ${productName}`,
+                avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(customerName)}&background=random&color=fff`,
+                timestamp: Date.now()
+            };
+
+            await db.push("/orders[]", newNotification);
+            
+            // تنظيف القديم (آخر 50 فقط)
+            const allOrders = await db.getData("/orders");
+            if (allOrders.length > 50) await db.push("/orders", allOrders.slice(-50));
+        }
+
+        res.status(200).send({ success: true });
     } catch (error) {
-        res.json({ name: "Error", action: "No Data" });
+        console.error('Error:', error.message);
+        res.status(500).send({ success: false });
     }
 });
 
-// --- 3. إعدادات التاجر (حفظ واسترجاع) ---
+// --- 2. إرسال الإعدادات لملف الجافاسكريبت ---
 app.get('/settings', async (req, res) => {
     try {
         const settings = await db.getData("/settings");
         res.json(settings);
-    } catch(e) {
-        res.json({ color: "#22c55e", position: "top-left" });
+    } catch (e) {
+        res.json(DEFAULT_SETTINGS);
     }
 });
 
-app.post('/settings', async (req, res) => {
-    const { color, position } = req.body;
-    await db.push("/settings", { color, position });
-    console.log(`⚙️ Settings Updated: ${color}, ${position}`);
-    res.json({ success: true });
+// --- 3. إرسال الإشعارات ---
+app.get('/notifications', async (req, res) => {
+    try {
+        const orders = await db.getData("/orders");
+        if (orders.length === 0) throw new Error("Empty");
+        const recent = orders.slice(-10);
+        res.json(recent[Math.floor(Math.random() * recent.length)]);
+    } catch (e) {
+        res.json({ name: "زائر", action: "يتصفح المتجر", avatar: "https://randomuser.me/api/portraits/lego/1.jpg" });
+    }
 });
 
-app.get('/settings-page', (req, res) => {
-    res.sendFile(path.join(__dirname, 'settings.html'));
-});
-
-// --- 4. ملف الجافاسكريبت ---
+// --- 4. ملف العميل ---
 app.get('/client.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'client.js'));
 });
 
-app.listen(PORT, () => console.log(`✅ Server with DB Running on Port ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Server Running on Port ${PORT}`));
