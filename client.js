@@ -2,15 +2,7 @@
     const APP_URL = 'https://nabdh-live.onrender.com'; // ⚠️ تأكد من الرابط
     const FETCH_INTERVAL = 3000; 
 
-    // --- 1. هل نحن في صفحة منتج؟ (قفل الأمان) ---
-    const isProductPage = () => {
-        // فحص كلاسات الجسم (Body)
-        if (document.body.classList.contains('product-single')) return true;
-        // فحص الرابط (أحياناً الكلاس يتأخر)
-        if (window.location.href.includes('/p/')) return true;
-        return false;
-    };
-
+    // جلب رقم المتجر
     const getStoreId = () => {
         try {
             if (window.salla && window.salla.config && window.salla.config.store && window.salla.config.store.id) return window.salla.config.store.id;
@@ -21,6 +13,9 @@
     };
 
     const applyMerchantSettings = async () => {
+        // حظر العمل في السلة تماماً
+        if (window.location.href.includes('/cart')) return null;
+
         let storeId = getStoreId();
         if (!storeId) await new Promise(r => setTimeout(r, 1000));
         
@@ -35,39 +30,75 @@
     const injectStyles = (settings) => {
         if (!settings || document.getElementById('nabdh-styles')) return;
 
-        let positionStyle = 'left: 0; top: -55px;';
+        let positionStyle = 'left: 0; top: -55px;'; // الافتراضي (فوق الزر يسار)
+        
+        // تعديل مكان التنبيه بناءً على الإعدادات
         if (settings.position === 'top-right') positionStyle = 'right: 0; left: auto; top: -55px;';
         else if (settings.position === 'bottom-center') positionStyle = 'left: 50%; transform: translateX(-50%); top: 110%; bottom: auto;';
 
         const style = document.createElement('style');
         style.id = 'nabdh-styles';
         style.innerHTML = `
-            /* نخفي أي تنبيه يظهر بالخطأ خارج المكان المخصص */
+            /* نخفي التنبيهات في الأماكن غير المرغوبة (مثل كروت المنتجات الصغيرة) */
             .s-product-card-content .social-proof-wrapper,
             .cart-item .social-proof-wrapper { display: none !important; }
 
-            .social-proof-wrapper { position: relative !important; display: inline-block !important; width: 100% !important; }
-            .living-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
+            /* تنسيق الحاوية لتأخذ مساحة الزر كاملة */
+            .social-proof-wrapper { 
+                position: relative !important; 
+                display: block !important; 
+                width: 100% !important; 
+            }
             
+            /* الطبقة العائمة للتنبيهات */
+            .living-layer { 
+                position: absolute; 
+                top: 0; 
+                left: 0; 
+                width: 100%; 
+                height: 100%; 
+                pointer-events: none; 
+                z-index: 9999; 
+            }
+            
+            /* نبض الزر */
             .salla-social-pulse {
                 animation: sallaHeartBeat 2s ease-in-out infinite !important;
                 box-shadow: 0 0 15px ${settings.brand_color || '#22c55e'}66 !important;
             }
 
+            /* مجموعة التنبيه (الصورة والنص) */
             .salla-activity-group {
-                position: absolute; display: flex; align-items: center; gap: 8px;
-                opacity: 0; animation: sallaSlideUp 4s ease-in-out forwards;
-                pointer-events: none; z-index: 10000; direction: ltr;
-                ${positionStyle}
+                position: absolute; 
+                display: flex; 
+                align-items: center; 
+                gap: 8px;
+                opacity: 0; 
+                animation: sallaSlideUp 4s ease-in-out forwards;
+                pointer-events: none; 
+                z-index: 10000; 
+                direction: ltr;
+                ${positionStyle} /* تطبيق المكان */
             }
+            
+            /* دعم اللغة العربية */
             [dir="rtl"] .salla-activity-group { flex-direction: row-reverse; }
 
+            /* شكل التنبيه */
             .salla-tooltip {
                 background: ${settings.brand_color || '#22c55e'};
-                padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold;
-                color: #fff; border: 1px solid rgba(255,255,255,0.3);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.2); font-family: inherit; white-space: nowrap;
+                padding: 6px 14px; 
+                border-radius: 20px; 
+                font-size: 12px; 
+                font-weight: bold;
+                color: #fff; 
+                border: 1px solid rgba(255,255,255,0.3);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2); 
+                font-family: inherit; 
+                white-space: nowrap;
             }
+            
+            /* صورة المشتري */
             .salla-avatar { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; background-size: cover; background-color: #eee; flex-shrink: 0; }
             
             @keyframes sallaHeartBeat { 0% { transform: scale(1); } 5% { transform: scale(1.02); } 10% { transform: scale(1); } }
@@ -77,50 +108,64 @@
     };
 
     const init = async () => {
-        // ⛔️ إذا لم نكن في صفحة منتج، توقف فوراً
-        if (!isProductPage()) {
-            console.log("Not a product page, stopping Nabdh App.");
-            return;
-        }
-
         setTimeout(async () => {
             const settings = await applyMerchantSettings();
+            if (!settings) return; // توقف إذا كنا في السلة
             injectStyles(settings);
 
+            // 🎯 قائمة الأهداف: نبحث عن الزر في المكانين (الصفحة الرئيسية للمنتج + البار الثابت)
+            const targetSelectors = [
+                // 1. الزر داخل البار الثابت (الكود اللي أرسلته لي)
+                '.sticky-product-bar salla-add-product-button .s-button-element',
+                // 2. الزر الرئيسي في صفحة تفاصيل المنتج العادية
+                '.product-details salla-add-product-button .s-button-element',
+                '.s-product-info-wrapper salla-add-product-button .s-button-element' 
+            ];
+
             const checkBtn = setInterval(() => {
-                // 🎯 البحث بذكاء: نبحث عن الزر داخل "حاوية معلومات المنتج" فقط
-                // هذا يمنع الكود من الوصول للأزرار في الهيدر أو المنتجات المقترحة
-                const mainContainer = document.querySelector('.product-details') || 
-                                      document.querySelector('.s-product-info-wrapper') || 
-                                      document.querySelector('.product-entry');
+                let targetBtn = null;
 
-                if (mainContainer) {
-                    // نبحث عن الزر داخل هذه الحاوية فقط
-                    const targetBtn = mainContainer.querySelector('salla-add-product-button button') || 
-                                      mainContainer.querySelector('.s-button-element');
-
-                    // شرط إضافي: التأكد أنه ليس زر حذف وليس داخل كرت صغير
-                    if (targetBtn && !targetBtn.closest('.s-product-card-content') && !targetBtn.dataset.socialProofInit) {
-                        clearInterval(checkBtn);
-                        enhanceButton(targetBtn);
+                // ندور في الأماكن المحددة فقط
+                for (let selector of targetSelectors) {
+                    const btn = document.querySelector(selector);
+                    // نتأكد أننا ما اخترنا زر داخل كرت منتج صغير بالغلط
+                    if (btn && !btn.closest('.s-product-card-content') && !btn.dataset.socialProofInit) {
+                        targetBtn = btn;
+                        break; 
                     }
+                }
+
+                if (targetBtn) {
+                    // لا توقف البحث فوراً، لأن البار الثابت قد يظهر لاحقاً
+                    // لكن تأكد أننا ما نكرر العمل على نفس الزر
+                    enhanceButton(targetBtn);
                 }
             }, 1000);
             
-            setTimeout(() => clearInterval(checkBtn), 10000);
+            // نوقف البحث بعد 15 ثانية (وقت كافي لظهور البار الثابت)
+            setTimeout(() => clearInterval(checkBtn), 15000);
         }, 1000);
     };
 
     const enhanceButton = (btn) => {
+        if (btn.dataset.socialProofInit) return; // حماية من التكرار
         btn.dataset.socialProofInit = "true";
+        
         btn.classList.add('salla-social-pulse');
+        
+        // إنشاء الغلاف حول الزر
         const wrapper = document.createElement('div');
         wrapper.className = 'social-proof-wrapper';
+        
+        // نقل الزر داخل الغلاف بحذر
         btn.parentNode.insertBefore(wrapper, btn);
         wrapper.appendChild(btn);
+        
+        // إضافة طبقة التنبيهات
         const layer = document.createElement('div');
         layer.className = 'living-layer';
         wrapper.appendChild(layer);
+        
         startActivityLoop(layer);
     };
 
