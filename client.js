@@ -4,10 +4,12 @@
  */
 
 (function() {
-    // Configuration
-    const APP_URL = 'https://nabdh-live.onrender.com'; // Replace with your actual app URL
-    const FETCH_INTERVAL = 3000; // Time between spawns
+    // --- إعدادات الرابط ---
+    // تأكد أن هذا الرابط هو رابط سيرفرك في Render بدون شرطة في الأخير
+    const APP_URL = 'https://nabdh-live.onrender.com'; 
+    const FETCH_INTERVAL = 3000; 
     
+    // --- بيانات وهمية (احتياطية) ---
     const FALLBACK_DATA = {
         en: {
             names: ["Sarah", "James", "Elena", "Marcus", "Aisha", "Liam", "Sophia", "David"],
@@ -26,15 +28,21 @@
         'https://randomuser.me/api/portraits/women/66.jpg', 'https://randomuser.me/api/portraits/men/77.jpg'
     ];
 
-    // CSS Injection
+    // --- حقن التصميم (CSS) ---
     const injectStyles = () => {
+        if (document.getElementById('nabdh-styles')) return; // منع التكرار
+        
         const style = document.createElement('style');
+        style.id = 'nabdh-styles';
         style.innerHTML = `
+            /* الحاوية الرئيسية */
             .social-proof-wrapper {
                 position: relative !important;
                 display: inline-block !important;
-                width: 100%;
+                width: 100% !important; /* لضمان أن الزر يأخذ راحته */
             }
+            
+            /* الطبقة العائمة */
             .living-layer {
                 position: absolute;
                 top: 0;
@@ -45,10 +53,15 @@
                 z-index: 9999;
                 overflow: visible !important;
             }
+
+            /* تأثير النبض للزر */
             .salla-social-pulse {
                 animation: sallaHeartBeat 2s ease-in-out infinite !important;
-                box-shadow: 0 10px 30px -10px rgba(99, 102, 241, 0.4) !important;
+                position: relative;
+                z-index: 2; /* ليكون فوق الخلفية */
             }
+
+            /* مجموعة الإشعار (الصورة + النص) */
             .salla-activity-group {
                 position: absolute;
                 display: flex;
@@ -59,100 +72,126 @@
                 animation: sallaSlideAcross 4.8s ease-in-out forwards;
                 pointer-events: none;
                 z-index: 10000;
+                direction: ltr; /* لضمان ترتيب الصورة والنص */
             }
-            [dir="rtl"] .salla-activity-group { flex-direction: row-reverse; }
+            
+            /* دعم العربية */
+            [dir="rtl"] .salla-activity-group { 
+                flex-direction: row-reverse; 
+            }
+
             .salla-avatar {
                 width: 32px; height: 32px;
                 border-radius: 50%;
                 border: 2px solid white;
-                box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+                box-shadow: 0 4px 10px rgba(0,0,0,0.3);
                 background-size: cover; background-position: center;
                 flex-shrink: 0;
+                background-color: #eee;
             }
+
             .salla-tooltip {
-                background: rgba(15, 23, 42, 0.95);
+                background: rgba(15, 23, 42, 0.90);
                 backdrop-filter: blur(8px);
-                padding: 5px 12px;
-                border-radius: 10px;
+                -webkit-backdrop-filter: blur(8px);
+                padding: 6px 12px;
+                border-radius: 20px;
                 font-size: 11px;
-                font-weight: 600;
+                font-weight: normal;
                 white-space: nowrap;
                 color: #fff;
                 border: 1px solid rgba(255, 255, 255, 0.1);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.4);
-                font-family: sans-serif;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+                font-family: inherit;
             }
+
             @keyframes sallaHeartBeat {
                 0% { transform: scale(1); }
-                5% { transform: scale(1.03); }
+                5% { transform: scale(1.02); }
                 10% { transform: scale(1); }
-                15% { transform: scale(1.02); }
+                15% { transform: scale(1.01); }
                 20% { transform: scale(1); }
             }
+
             @keyframes sallaSlideAcross {
-                0% { opacity: 0; transform: translateX(80px) translateY(5px) scale(0.7); }
-                15% { opacity: 1; transform: translateX(50px) translateY(0) scale(1); }
-                50% { transform: translateX(0) translateY(-4px) scale(1); }
-                85% { opacity: 1; transform: translateX(-50px) translateY(0) scale(1); }
-                100% { opacity: 0; transform: translateX(-80px) translateY(5px) scale(0.7); }
+                0% { opacity: 0; transform: translateY(10px) scale(0.8); }
+                10% { opacity: 1; transform: translateY(0) scale(1); }
+                80% { opacity: 1; transform: translateY(0) scale(1); }
+                100% { opacity: 0; transform: translateY(-10px) scale(0.8); }
             }
         `;
         document.head.appendChild(style);
     };
 
-    // Main Logic
+    // --- المنطق الرئيسي ---
     const init = () => {
         injectStyles();
         
-        // Salla Button Selectors
+        // هنا السر! أضفنا الكلاسات الخاصة بقالبك
         const selectors = [
-            '.salla-add-product-button',
+            'button[product-type="product"]',   // أقوى احتمال لقالبك
+            '.s-button-element',                // الكلاس اللي طلعته أنت
+            '.s-button-btn',
             '.product-details__btn-add',
-            'button[data-type="add_to_cart"]',
-            '.btn-add-to-cart'
+            '.salla-add-product-button'
         ];
 
         let targetBtn = null;
         
-        // Polling to find the button (it might be rendered late)
+        // محاولة البحث عن الزر كل ثانية (لأن سلة أحياناً تتأخر في تحميل الزر)
         const checkBtn = setInterval(() => {
             for (let selector of selectors) {
-                targetBtn = document.querySelector(selector);
-                if (targetBtn) break;
+                // نبحث عن زر يكون "ظاهر" وليس مخفياً
+                const found = document.querySelector(selector);
+                if (found && found.offsetParent !== null) { 
+                    targetBtn = found;
+                    break;
+                }
             }
 
             if (targetBtn && !targetBtn.dataset.socialProofInit) {
                 clearInterval(checkBtn);
+                console.log("✅ Nabdh: Button Found!", targetBtn); // عشان تشوف في الكونسول
                 enhanceButton(targetBtn);
             }
-        }, 1000);
+        }, 800);
+        
+        // إيقاف البحث بعد 10 ثواني لتوفير الموارد
+        setTimeout(() => clearInterval(checkBtn), 10000);
     };
 
     const enhanceButton = (btn) => {
         btn.dataset.socialProofInit = "true";
         btn.classList.add('salla-social-pulse');
 
-        // Create Wrapper
+        // إنشاء الحاوية حول الزر الموجود
         const wrapper = document.createElement('div');
         wrapper.className = 'social-proof-wrapper';
+        
+        // حيلة لنقل الزر داخل الحاوية دون كسر التصميم
         btn.parentNode.insertBefore(wrapper, btn);
         wrapper.appendChild(btn);
 
-        // Create Living Layer
+        // إنشاء طبقة الفقاعات
         const layer = document.createElement('div');
         layer.className = 'living-layer';
         wrapper.appendChild(layer);
 
-        // Start Activity Loop
+        // بدء الحلقة
         startActivityLoop(layer, btn, wrapper);
     };
 
     const startActivityLoop = (layer, btn, wrapper) => {
         const spawn = async () => {
+            // نتحقق إذا المستخدم فاتح الصفحة ولا لا (عشان الأداء)
+            if (document.hidden) {
+                setTimeout(spawn, FETCH_INTERVAL);
+                return;
+            }
+
             let name, action, avatar;
             
             try {
-                // Try fetching real data
                 const response = await fetch(`${APP_URL}/notifications`);
                 if (!response.ok) throw new Error();
                 const data = await response.json();
@@ -160,7 +199,6 @@
                 action = data.action;
                 avatar = data.avatar;
             } catch (e) {
-                // Fallback to random data
                 const isAr = document.documentElement.dir === 'rtl';
                 const lang = isAr ? 'ar' : 'en';
                 name = FALLBACK_DATA[lang].names[Math.floor(Math.random() * FALLBACK_DATA[lang].names.length)];
@@ -169,7 +207,7 @@
             }
 
             createNotification(layer, btn, wrapper, name, action, avatar);
-            setTimeout(spawn, FETCH_INTERVAL + (Math.random() * 2000));
+            setTimeout(spawn, FETCH_INTERVAL + (Math.random() * 3000));
         };
 
         spawn();
@@ -184,25 +222,27 @@
             <div class="salla-tooltip"><strong>${name}</strong> ${action}</div>
         `;
 
+        // حساب الموقع: فوق الزر في المنتصف
         const btnRect = btn.getBoundingClientRect();
-        const wrapperRect = wrapper.getBoundingClientRect();
         
-        // Exact offsets from approved index.html
-        const x = (btnRect.left - wrapperRect.left) + (btnRect.width / 2) - 80;
-        const y = (btnRect.top - wrapperRect.top) - 35;
-
-        group.style.left = `${x}px`;
-        group.style.top = `${y}px`;
+        // تعديل المواقع ليكون فوق الزر مباشرة
+        // نستخدم النسبة المئوية لضمان التوافق مع الجوال
+        group.style.left = '50%';
+        group.style.top = '-50px'; 
+        group.style.transform = 'translateX(-50%)'; // لتوسيط العنصر
+        
+        // في الكود القديم كنا نحسب بالبكسل، هنا بسطناها عشان تشتغل مع كل القوالب
         
         layer.appendChild(group);
+        
+        // حذف العنصر بعد انتهاء الانيميشن
         setTimeout(() => group.remove(), 5000);
     };
 
-    // Run when DOM is ready
+    // التشغيل عند تحميل الصفحة
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {
         init();
     }
 })();
-
