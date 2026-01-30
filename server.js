@@ -1,87 +1,126 @@
 const express = require('express');
 const cors = require('cors');
-const { JsonDB, Config } = require('node-json-db');
+const mongoose = require('mongoose');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// إعداد قاعدة البيانات
-const db = new JsonDB(new Config("myDatabase", true, false, '/'));
+// --- 1. الاتصال بقاعدة البيانات ---
+// نستخدم متغير بيئة للرابط عشان الأمان
+const MONGO_URI = process.env.MONGO_URI; 
+
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('✅ Connected to MongoDB Atlas'))
+  .catch(err => console.error('❌ MongoDB Connection Error:', err));
+
+// --- 2. تصميم شكل البيانات (Schemas) ---
+// جدول الإعدادات
+const SettingsSchema = new mongoose.Schema({
+  merchantId: { type: String, required: true, unique: true }, // رقم التاجر هو المفتاح
+  brand_color: { type: String, default: "#22c55e" },
+  position: { type: String, default: "top-left" }
+});
+const Settings = mongoose.model('Settings', SettingsSchema);
+
+// جدول الطلبات (سنحفظ آخر الطلبات)
+const OrderSchema = new mongoose.Schema({
+  merchantId: String,
+  name: String,
+  action: String,
+  avatar: String,
+  timestamp: { type: Date, default: Date.now }
+});
+const Order = mongoose.model('Order', OrderSchema);
 
 app.use(cors());
 app.use(express.json());
 
-// الإعدادات الافتراضية
 const DEFAULT_SETTINGS = { brand_color: "#22c55e", position: "top-left" };
 
-// --- 1. الويب هوك (استقبال التغييرات من سلة) ---
+// --- 3. الويب هوك (Webhook) ---
 app.post('/webhook', async (req, res) => {
     const payload = req.body;
     const event = payload.event;
+    const merchantId = payload.merchant; // رقم التاجر من سلة
 
     try {
-        // أ) التاجر غير اللون في الإعدادات
+        // أ) تحديث الإعدادات
         if (event === 'app.settings.updated') {
-            const settings = payload.data.settings;
-            console.log('🎨 Settings Updated:', settings);
+            const newSettings = payload.data.settings;
+            console.log(`🎨 Settings Update for Merchant: ${merchantId}`);
             
-            // حفظ الإعدادات
-            await db.push("/settings", {
-                brand_color: settings.brand_color || DEFAULT_SETTINGS.brand_color,
-                position: settings.position || DEFAULT_SETTINGS.position
-            });
+            // "Upsert": حدث البيانات لو موجودة، أو أنشئ جديدة لو غير موجودة
+            await Settings.findOneAndUpdate(
+                { merchantId: merchantId },
+                { 
+                  brand_color: newSettings.brand_color,
+                  position: newSettings.position
+                },
+                { upsert: true, new: true }
+            );
         }
 
-        // ب) طلب جديد (تسجيل الإشعار)
+        // ب) طلب جديد
         else if (event === 'order.created') {
             const customerName = payload.data?.customer?.first_name || "زائر";
             const productName = payload.data?.items?.[0]?.name || "منتج";
             
-            const newNotification = {
+            // حفظ الطلب في قاعدة البيانات
+            await Order.create({
+                merchantId: merchantId,
                 name: customerName,
                 action: `اشترى ${productName}`,
-                avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(customerName)}&background=random&color=fff`,
-                timestamp: Date.now()
-            };
+                avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(customerName)}&background=random&color=fff`
+            });
 
-            await db.push("/orders[]", newNotification);
-            
-            // تنظيف القديم (آخر 50 فقط)
-            const allOrders = await db.getData("/orders");
-            if (allOrders.length > 50) await db.push("/orders", allOrders.slice(-50));
+            // (اختياري) تنظيف الطلبات القديمة لتقليل المساحة
+            // نحذف ما زاد عن أحدث 50 طلب لهذا التاجر
+            const count = await Order.countDocuments({ merchantId });
+            if (count > 50) {
+                const oldOrders = await Order.find({ merchantId }).sort({ timestamp: 1 }).limit(count - 50);
+                await Order.deleteMany({ _id: { $in: oldOrders.map(o => o._id) } });
+            }
         }
 
         res.status(200).send({ success: true });
     } catch (error) {
-        console.error('Error:', error.message);
+        console.error('Error:', error);
         res.status(500).send({ success: false });
     }
 });
 
-// --- 2. إرسال الإعدادات لملف الجافاسكريبت ---
+// --- 4. API للإعدادات والواجهة ---
 app.get('/settings', async (req, res) => {
+    const storeId = req.query.store_id;
+    if (!storeId) return res.json(DEFAULT_SETTINGS);
+
     try {
-        const settings = await db.getData("/settings");
-        res.json(settings);
+        const settings = await Settings.findOne({ merchantId: storeId });
+        res.json(settings || DEFAULT_SETTINGS);
     } catch (e) {
         res.json(DEFAULT_SETTINGS);
     }
 });
 
-// --- 3. إرسال الإشعارات ---
 app.get('/notifications', async (req, res) => {
+    // يمكننا مستقبلاً تصفية الإشعارات حسب التاجر
+    // const storeId = req.query.store_id; 
+    
     try {
-        const orders = await db.getData("/orders");
-        if (orders.length === 0) throw new Error("Empty");
-        const recent = orders.slice(-10);
-        res.json(recent[Math.floor(Math.random() * recent.length)]);
+        // جلب أحدث 10 طلبات بشكل عام (للعرض)
+        // أو يمكنك جعلها خاصة بكل تاجر إذا مررت store_id من الواجهة
+        const recentOrders = await Order.find().sort({ timestamp: -1 }).limit(10);
+        
+        if (recentOrders.length === 0) throw new Error("Empty");
+        
+        const randomOrder = recentOrders[Math.floor(Math.random() * recentOrders.length)];
+        res.json(randomOrder);
     } catch (e) {
         res.json({ name: "زائر", action: "يتصفح المتجر", avatar: "https://randomuser.me/api/portraits/lego/1.jpg" });
     }
 });
 
-// --- 4. ملف العميل ---
 app.get('/client.js', (req, res) => {
     res.sendFile(path.join(__dirname, 'client.js'));
 });
