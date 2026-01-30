@@ -1,8 +1,8 @@
 (function() {
-    const APP_URL = 'https://nabdh-live.onrender.com'; // تأكد أن هذا رابطك الصحيح
+    const APP_URL = 'https://nabdh-live.onrender.com'; // ⚠️ تأكد أن الرابط هو رابطك في Render
     const FETCH_INTERVAL = 3000; 
 
-    // دالة البحث عن رقم المتجر
+    // 1. دالة البحث عن هوية المتجر
     const getStoreId = () => {
         try {
             if (window.salla && window.salla.config && window.salla.config.store && window.salla.config.store.id) return window.salla.config.store.id;
@@ -12,14 +12,15 @@
         } catch (e) { return null; }
     };
 
+    // 2. جلب الإعدادات من السيرفر
     const applyMerchantSettings = async () => {
         let storeId = getStoreId();
         if (!storeId) {
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 1000)); // انتظار بسيط
             storeId = getStoreId();
         }
         
-        // إذا كنا في صفحة السلة، نوقف العمل فوراً (عشان ما يطلع فوق زر الدفع)
+        // ⛔️ حظر العمل في صفحة السلة تماماً
         if (window.location.href.includes('/cart')) {
             return null;
         }
@@ -32,6 +33,7 @@
         }
     };
 
+    // 3. حقن التصاميم
     const injectStyles = (settings) => {
         if (!settings || document.getElementById('nabdh-styles')) return;
 
@@ -42,10 +44,9 @@
         const style = document.createElement('style');
         style.id = 'nabdh-styles';
         style.innerHTML = `
-            /* نخفي التنبيهات داخل السلة وكروت المنتجات الصغيرة */
-            .cart-item .social-proof-wrapper,
-            .product-entry__actions .social-proof-wrapper, 
-            .btn--delete .social-proof-wrapper { display: none !important; }
+            /* إخفاء إجباري لأي تنبيه يظهر بالخطأ داخل كروت المنتجات */
+            .s-product-card-content .social-proof-wrapper,
+            .s-product-card-content-footer .social-proof-wrapper { display: none !important; }
 
             .social-proof-wrapper { position: relative !important; display: inline-block !important; width: 100% !important; }
             .living-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
@@ -77,30 +78,40 @@
         document.head.appendChild(style);
     };
 
+    // 4. التشغيل والبحث عن الزر الصحيح
     const init = async () => {
         setTimeout(async () => {
             const settings = await applyMerchantSettings();
             if (!settings) return; // توقف إذا كنا في السلة
             injectStyles(settings);
 
-            // ⚠️ التغيير هنا: نحدد فقط زر إضافة المنتج الرئيسي
-            // ونستبعد أي شيء داخل السلة أو أزرار الحذف
             const checkBtn = setInterval(() => {
-                // نبحث عن المكون الرئيسي لإضافة المنتج
-                const mainProductBtn = document.querySelector('salla-add-product-button button') || 
-                                       document.querySelector('.product-details__btn-add');
+                // نبحث عن كل الأزرار المحتملة
+                const potentialButtons = document.querySelectorAll('salla-add-product-button button, .s-button-element');
 
-                if (mainProductBtn) {
-                    // تحقق مزدوج: تأكد أن الزر ليس زر حذف ولا داخل السلة
-                    const isDeleteBtn = mainProductBtn.classList.contains('btn--delete');
-                    const isInCart = mainProductBtn.closest('salla-cart-summary') || mainProductBtn.closest('.cart-item');
+                potentialButtons.forEach(btn => {
+                    // ⛔️ فلتر 1: هل الزر داخل كرت منتج صغير؟ (هذا هو الحل لمشكلتك)
+                    const isInsideCard = btn.closest('.s-product-card-content') || 
+                                         btn.closest('.s-product-card-content-footer') ||
+                                         btn.closest('.product-entry'); // لبعض الثيمات الأخرى
 
-                    if (!mainProductBtn.dataset.socialProofInit && !isDeleteBtn && !isInCart) {
-                        clearInterval(checkBtn);
-                        enhanceButton(mainProductBtn);
+                    // ⛔️ فلتر 2: هل الزر داخل السلة؟
+                    const isInCart = btn.closest('.cart-item') || btn.closest('salla-cart-summary');
+
+                    // ⛔️ فلتر 3: هل هو زر حذف؟
+                    const isDeleteBtn = btn.classList.contains('btn--delete') || btn.getAttribute('color') === 'danger';
+
+                    // ✅ الشرط الذهبي: إذا لم يكن في كرت، ولم يكن في سلة، ولم يكن زر حذف.. إذن هو الزر الرئيسي!
+                    if (!isInsideCard && !isInCart && !isDeleteBtn && !btn.dataset.socialProofInit) {
+                        // تأكد أن الزر كبير وواضح (اختياري)
+                        // غالباً الزر الرئيسي يكون عرضه wide
+                        enhanceButton(btn);
                     }
-                }
+                });
+
             }, 1000);
+            
+            // نوقف البحث بعد 10 ثواني لتوفير الموارد
             setTimeout(() => clearInterval(checkBtn), 10000);
         }, 1000);
     };
@@ -111,7 +122,6 @@
         const wrapper = document.createElement('div');
         wrapper.className = 'social-proof-wrapper';
         
-        // خدعة لضمان عدم تكسير التصميم
         btn.parentNode.insertBefore(wrapper, btn);
         wrapper.appendChild(btn);
         
