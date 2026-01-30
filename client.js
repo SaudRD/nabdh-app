@@ -1,29 +1,25 @@
 (function() {
-    const APP_URL = 'https://nabdh-live.onrender.com'; // تأكد أن الرابط صحيح
+    const APP_URL = 'https://nabdh-live.onrender.com'; // ⚠️ تأكد أن هذا الرابط هو رابطك في Render
     const FETCH_INTERVAL = 3000; 
 
-    // دالة لجلب إعدادات التاجر وتطبيقها
+    // جلب الإعدادات (اللون والمكان)
     const applyMerchantSettings = async () => {
         try {
             const res = await fetch(`${APP_URL}/settings`);
             const settings = await res.json();
             return settings;
         } catch (e) {
-            return { color: '#22c55e', position: 'top-left' }; // الافتراضي
+            return { brand_color: '#22c55e', position: 'top-left' };
         }
     };
 
     const injectStyles = (settings) => {
         if (document.getElementById('nabdh-styles')) return;
 
-        // تحديد الموقع بناءً على الإعدادات
-        let positionStyle = '';
-        if (settings.position === 'top-left') {
-            positionStyle = `left: 0; top: -55px;`;
-        } else if (settings.position === 'top-right') {
-            positionStyle = `right: 0; left: auto; top: -55px;`;
-        } else if (settings.position === 'bottom-center') {
-             positionStyle = `left: 50%; transform: translateX(-50%); top: 110%; bottom: auto;`;
+        // تحديد الموقع
+        let positionStyle = 'left: 0; top: -55px;'; // الافتراضي (يسار)
+        if (settings.position === 'top-right') {
+            positionStyle = 'right: 0; left: auto; top: -55px;';
         }
 
         const style = document.createElement('style');
@@ -34,37 +30,25 @@
             
             .salla-social-pulse {
                 animation: sallaHeartBeat 2s ease-in-out infinite !important;
-                box-shadow: 0 0 15px ${settings.color}66 !important; /* لون متغير مع شفافية */
+                box-shadow: 0 0 15px ${settings.brand_color}66 !important; /* لون التاجر */
             }
 
             .salla-activity-group {
-                position: absolute;
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                opacity: 0;
-                animation: sallaSlideUp 4s ease-in-out forwards;
-                pointer-events: none;
-                z-index: 10000;
-                direction: ltr;
-                ${positionStyle} /* تطبيق المكان المختار */
+                position: absolute; display: flex; align-items: center; gap: 8px;
+                opacity: 0; animation: sallaSlideUp 4s ease-in-out forwards;
+                pointer-events: none; z-index: 10000; direction: ltr;
+                ${positionStyle}
             }
             [dir="rtl"] .salla-activity-group { flex-direction: row-reverse; }
 
-            .salla-avatar {
-                width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff;
-                box-shadow: 0 4px 12px rgba(0,0,0,0.15); background-size: cover;
-                background-color: #eee; flex-shrink: 0;
-            }
-
             .salla-tooltip {
-                background: ${settings.color}; /* اللون المختار من التاجر */
+                background: ${settings.brand_color}; /* لون التاجر */
                 padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold;
                 color: #fff; border: 1px solid rgba(255,255,255,0.3);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-                font-family: inherit; white-space: nowrap;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2); font-family: inherit; white-space: nowrap;
             }
-
+            .salla-avatar { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; background-size: cover; background-color: #eee; flex-shrink: 0; }
+            
             @keyframes sallaHeartBeat { 0% { transform: scale(1); } 5% { transform: scale(1.02); } 10% { transform: scale(1); } }
             @keyframes sallaSlideUp { 0% { opacity: 0; transform: translateY(10px); } 15% { opacity: 1; transform: translateY(0); } 85% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-10px); } }
         `;
@@ -72,12 +56,11 @@
     };
 
     const init = async () => {
-        const settings = await applyMerchantSettings();
-        injectStyles(settings);
+        const settings = await applyMerchantSettings(); // 1. جلب الإعدادات
+        injectStyles(settings); // 2. تطبيق الألوان
 
         const selectors = ['button[product-type="product"]', '.s-button-element', '.product-details__btn-add'];
         let targetBtn = null;
-        
         const checkBtn = setInterval(() => {
             for (let selector of selectors) {
                 const found = document.querySelector(selector);
@@ -85,13 +68,13 @@
             }
             if (targetBtn && !targetBtn.dataset.socialProofInit) {
                 clearInterval(checkBtn);
-                enhanceButton(targetBtn, settings); // تمرير الإعدادات
+                enhanceButton(targetBtn);
             }
         }, 800);
         setTimeout(() => clearInterval(checkBtn), 10000);
     };
 
-    const enhanceButton = (btn, settings) => {
+    const enhanceButton = (btn) => {
         btn.dataset.socialProofInit = "true";
         btn.classList.add('salla-social-pulse');
         const wrapper = document.createElement('div');
