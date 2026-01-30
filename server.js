@@ -3,6 +3,7 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios'); // تأكد أنك مثبت هذه المكتبة
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,61 +12,72 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
-// In-Memory Database (Last 50 Purchases)
+// قاعدة بيانات مؤقتة
 let notificationsStore = [
     { name: "سارة", action: "اشترت هذا المنتج", avatar: "https://randomuser.me/api/portraits/women/10.jpg" },
     { name: "Ahmed", action: "purchased this!", avatar: "https://randomuser.me/api/portraits/men/15.jpg" }
 ];
 
-// Endpoint 1: Salla Webhook (order.created)
-app.post('/webhook', (req, res) => {
+// Endpoint 1: Salla Webhook
+app.post('/webhook', async (req, res) => {
     console.log('--- Incoming Salla Webhook ---');
+    const payload = req.body;
     
     try {
-        const payload = req.body;
-        
-        // Extracting data from Salla's typical webhook structure
-        // Salla structure: payload.data.customer (name) and payload.data.items[0].name (product)
-        const customerName = payload.data?.customer?.first_name || "Someone";
-        const productName = payload.data?.items?.[0]?.name || "a product";
-        
-        // Create new notification
-        const newNotification = {
-            name: customerName,
-            action: `bought ${productName}`,
-            avatar: `https://avatar.iran.liara.run/username?username=${customerName}`, // Dynamic avatar fallback
-            timestamp: Date.now()
-        };
+        // 1. حدث تثبيت التطبيق (الحقن التلقائي)
+        if (payload.event === 'app.store.authorize') {
+            console.log('Merchant Authorized App! Injecting Script...');
+            const token = payload.data.access_token;
+            
+            // حقن السكربت في متجر التاجر عبر API سلة
+            await axios.post('https://api.salla.dev/admin/v2/merchant/scripts', {
+                name: "Nabdh Living Border",
+                src: "https://nabdh-live.onrender.com/client.js", // رابط السكربت حقك
+                event: "on_load",
+                load_method: "defer"
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            console.log('Script Injected Successfully!');
+        }
 
-        // Add to the beginning and keep only last 50
-        notificationsStore.unshift(newNotification);
-        if (notificationsStore.length > 50) notificationsStore.pop();
+        // 2. حدث طلب جديد (تحديث الإشعارات)
+        else if (payload.event === 'order.created') {
+            const customerName = payload.data?.customer?.first_name || "زائر";
+            const productName = payload.data?.items?.[0]?.name || "منتج مميز";
+            
+            const newNotification = {
+                name: customerName,
+                action: `اشترى ${productName}`,
+                avatar: `https://ui-avatars.com/api/?name=${customerName}&background=random`,
+                timestamp: Date.now()
+            };
 
-        console.log(`Success: Registered purchase by ${customerName}`);
+            notificationsStore.unshift(newNotification);
+            if (notificationsStore.length > 50) notificationsStore.pop();
+            console.log(`Notification Added: ${customerName}`);
+        }
+
         res.status(200).send({ success: true });
     } catch (error) {
-        console.error('Webhook Error:', error.message);
+        console.error('Webhook Error:', error.response?.data || error.message);
         res.status(500).send({ success: false });
     }
 });
 
 // Endpoint 2: Serve Notifications
 app.get('/notifications', (req, res) => {
-    // Return a random entry from the most recent 5
-    if (notificationsStore.length === 0) {
-        return res.status(404).send({ error: "No data" });
-    }
-
-    const recentItems = notificationsStore.slice(0, 5);
-    const randomItem = recentItems[Math.floor(Math.random() * recentItems.length)];
-    
+    if (notificationsStore.length === 0) return res.json({name: "زائر", action: "يتصفح المتجر"});
+    const randomItem = notificationsStore[Math.floor(Math.random() * Math.min(5, notificationsStore.length))];
     res.json(randomItem);
 });
 
 // Endpoint 3: Serve client.js
 app.get('/client.js', (req, res) => {
     const clientScriptPath = path.join(__dirname, 'client.js');
-    
     if (fs.existsSync(clientScriptPath)) {
         res.setHeader('Content-Type', 'application/javascript');
         res.sendFile(clientScriptPath);
@@ -74,16 +86,4 @@ app.get('/client.js', (req, res) => {
     }
 });
 
-// Default Route
-app.get('/', (req, res) => {
-    res.send('Social Proof Server is Running!');
-});
-
-// Start Server
-app.listen(PORT, () => {
-    console.log(`========================================`);
-    console.log(`Social Proof Server Running on Port ${PORT}`);
-    console.log(`Webhook URL: http://localhost:${PORT}/webhook`);
-    console.log(`Script URL: http://localhost:${PORT}/client.js`);
-    console.log(`========================================`);
-});
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
