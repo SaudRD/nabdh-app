@@ -1,49 +1,65 @@
 (function() {
-    const APP_URL = 'https://nabdh-live.onrender.com'; // تأكد أن الرابط صحيح
+    const APP_URL = 'https://nabdh-live.onrender.com'; // رابط سيرفرك
     const FETCH_INTERVAL = 3000; 
 
-    // دالة ذكية للبحث عن رقم المتجر
+    // 🕵️‍♂️ دالة المفتش - تبحث عن رقم المتجر في كل مكان ممكن
     const getStoreId = () => {
         try {
-            // المحاولة 1: الطريقة القياسية
+            // المكان اللي لقيناه في ملفك (الأكثر احتمالاً)
+            if (window.salla && window.salla.config && window.salla.config.properties_ && window.salla.config.properties_.store && window.salla.config.properties_.store.id) {
+                return window.salla.config.properties_.store.id;
+            }
+
+            // الطريقة الرسمية لثيمات توايلايت
+            if (window.salla && window.salla.config && typeof window.salla.config.get === 'function') {
+                const id = window.salla.config.get('store.id');
+                if (id) return id;
+            }
+
+            // الطريقة القديمة
             if (window.salla && window.salla.config && window.salla.config.store && window.salla.config.store.id) {
                 return window.salla.config.store.id;
             }
-            // المحاولة 2: البحث في كود الصفحة عن رقم المتجر
-            // (سلة تضع الرقم أحياناً في متغيرات أخرى)
+            
+            // البحث في المتغيرات العالمية الأخرى
             if (window.CNfG && window.CNfG.store && window.CNfG.store.id) {
                 return window.CNfG.store.id;
             }
+
             return null;
         } catch (e) {
+            console.error("Error getting store ID:", e);
             return null;
         }
     };
 
     const applyMerchantSettings = async () => {
-        const storeId = getStoreId();
+        // نحاول نجيب الرقم، ونطبع النتيجة عشان نتأكد
+        let storeId = getStoreId();
         
-        // طباعة الرقم في الكونسول للتأكد (ستراها في المتصفح)
-        console.log("🔍 Nabdh App - Detected Store ID:", storeId);
-
-        // إذا لم نجد الرقم، ننتظر قليلاً ونحاول مرة أخرى (قد يكون المتجر بطيء في التحميل)
+        // محاولة أخيرة: إذا الرقم null، ننتظر ثانيتين ونجرب مرة ثانية (يمكن السلة ما حملت)
         if (!storeId) {
-             console.log("⚠️ Store ID not found yet, using defaults.");
+            await new Promise(r => setTimeout(r, 1500));
+            storeId = getStoreId();
+        }
+
+        console.log("🔍 Nabdh App - Store ID Found:", storeId);
+
+        if (!storeId) {
+             console.log("⚠️ Failed to find Store ID, loading defaults.");
              return { brand_color: '#22c55e', position: 'top-left' };
         }
 
         try {
             const res = await fetch(`${APP_URL}/settings?store_id=${storeId}`);
             const settings = await res.json();
-            console.log("✅ Settings Loaded:", settings);
+            console.log("✅ Settings Applied:", settings);
             return settings;
         } catch (e) {
-            console.error("❌ Error loading settings:", e);
             return { brand_color: '#22c55e', position: 'top-left' };
         }
     };
 
-    // باقي الكود كما هو تماماً...
     const injectStyles = (settings) => {
         if (document.getElementById('nabdh-styles')) return;
 
@@ -59,10 +75,12 @@
         style.innerHTML = `
             .social-proof-wrapper { position: relative !important; display: inline-block !important; width: 100% !important; }
             .living-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
+            
             .salla-social-pulse {
                 animation: sallaHeartBeat 2s ease-in-out infinite !important;
                 box-shadow: 0 0 15px ${settings.brand_color || '#22c55e'}66 !important;
             }
+
             .salla-activity-group {
                 position: absolute; display: flex; align-items: center; gap: 8px;
                 opacity: 0; animation: sallaSlideUp 4s ease-in-out forwards;
@@ -70,6 +88,7 @@
                 ${positionStyle}
             }
             [dir="rtl"] .salla-activity-group { flex-direction: row-reverse; }
+
             .salla-tooltip {
                 background: ${settings.brand_color || '#22c55e'};
                 padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold;
@@ -77,6 +96,7 @@
                 box-shadow: 0 5px 15px rgba(0,0,0,0.2); font-family: inherit; white-space: nowrap;
             }
             .salla-avatar { width: 34px; height: 34px; border-radius: 50%; border: 2px solid #fff; background-size: cover; background-color: #eee; flex-shrink: 0; }
+            
             @keyframes sallaHeartBeat { 0% { transform: scale(1); } 5% { transform: scale(1.02); } 10% { transform: scale(1); } }
             @keyframes sallaSlideUp { 0% { opacity: 0; transform: translateY(10px); } 15% { opacity: 1; transform: translateY(0); } 85% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-10px); } }
         `;
@@ -84,11 +104,11 @@
     };
 
     const init = async () => {
-        // تأخير بسيط للتأكد من تحميل سلة
+        // ننتظر قليلاً حتى تكتمل صفحة سلة
         setTimeout(async () => {
             const settings = await applyMerchantSettings();
             injectStyles(settings);
-            
+
             const selectors = ['button[product-type="product"]', '.s-button-element', '.product-details__btn-add'];
             let targetBtn = null;
             const checkBtn = setInterval(() => {
@@ -102,7 +122,7 @@
                 }
             }, 800);
             setTimeout(() => clearInterval(checkBtn), 10000);
-        }, 1000); // ننتظر ثانية واحدة قبل البدء
+        }, 1500); // زدنا وقت الانتظار لضمان تحميل المتغيرات
     };
 
     const enhanceButton = (btn) => {
